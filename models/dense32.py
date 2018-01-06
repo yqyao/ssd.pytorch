@@ -348,8 +348,8 @@ mbox = {
 }
 
 
-def build_ssd(phase, size=300, num_classes=21):
-    v2['use_extra_prior'] = False
+def build_ssd(phase, size=300, num_classes=21, use_more_prior=False):
+    v2['use_extra_prior'] = use_more_prior
     if phase != "test" and phase != "train":
         print("Error: Phase not recognized")
         return
