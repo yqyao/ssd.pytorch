@@ -22,7 +22,7 @@ import argparse
 import numpy as np
 import pickle
 import cv2
-
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 if sys.version_info[0] == 2:
     import xml.etree.cElementTree as ET
 else:
@@ -64,11 +64,11 @@ elif args.dense_size == '32':
 else:
     print('Unkown dense size!')
 
-annopath = os.path.join(args.voc_root, 'VOC2007', 'Annotations', '%s.xml')
-imgpath = os.path.join(args.voc_root, 'VOC2007', 'JPEGImages', '%s.jpg')
-imgsetpath = os.path.join(args.voc_root, 'VOC2007', 'ImageSets', 'Main', '{:s}.txt')
-YEAR = '2007'
-devkit_path = VOCroot + 'VOC' + YEAR
+annopath = os.path.join(args.voc_root, 'VOC0712', 'Annotations', '%s.xml')
+imgpath = os.path.join(args.voc_root, 'VOC0712', 'JPEGImages', '%s.jpg')
+imgsetpath = os.path.join(args.voc_root, 'VOC0712', 'ImageSets', 'Main', '{:s}.txt')
+YEAR = '0712'
+devkit_path = VOCroot #+ 'VOC' + YEAR
 dataset_mean = (104, 117, 123)
 set_type = 'test'
 
@@ -418,11 +418,12 @@ if __name__ == '__main__':
     # load net
     num_classes = len(VOC_CLASSES) + 1 # +1 background
     net = build_ssd('test', 300, num_classes) # initialize SSD
+    print (net)
     net.load_state_dict(torch.load(args.trained_model))
     net.eval()
     print('Finished loading model!')
     # load data
-    dataset = VOCDetection(args.voc_root, [('2007', set_type)], BaseTransform(300, dataset_mean), AnnotationTransform())
+    dataset = VOCDetection(args.voc_root, [('0712', set_type)], BaseTransform(300, dataset_mean), AnnotationTransform())
     if args.cuda:
         net = net.cuda()
         cudnn.benchmark = True
