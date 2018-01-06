@@ -38,6 +38,8 @@ v2 = {
     'clip' : True,
 
     'name' : 'v2',
+
+    'use_extra_prior' : False,
 }
 
 # use average pooling layer as last layer before multibox layers

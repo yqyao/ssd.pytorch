@@ -10,24 +10,30 @@ import torch.utils.data as data
 from data import v2, v1, AnnotationTransform, VOCDetection, detection_collate, VOCroot, VOC_CLASSES
 from utils.augmentations import SSDAugmentation
 from layers.modules import MultiBoxLoss
-from ssd import build_ssd
+from ssd_dense_32 import build_ssd
 import numpy as np
 import time
+import os 
+import sys
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+# os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
 
 parser = argparse.ArgumentParser(description='Single Shot MultiBox Detector Training')
 parser.add_argument('--version', default='v2', help='conv11_2(v2) or pool6(v1) as last layer')
+parser.add_argument('--dense_size', default='64', help='dense_ssd size 128, 64 or 32')
 parser.add_argument('--basenet', default='vgg16_reducedfc.pth', help='pretrained base model')
 parser.add_argument('--jaccard_threshold', default=0.5, type=float, help='Min Jaccard index for matching')
-parser.add_argument('--batch_size', default=16, type=int, help='Batch size for training')
+parser.add_argument('--batch_size', default=32, type=int, help='Batch size for training')
 parser.add_argument('--resume', default=None, type=str, help='Resume from checkpoint')
-parser.add_argument('--num_workers', default=2, type=int, help='Number of workers used in dataloading')
+parser.add_argument('--finetune', default=None, type=str, help='finetune from checkpoint')
+parser.add_argument('--num_workers', default=8, type=int, help='Number of workers used in dataloading')
 parser.add_argument('--iterations', default=120000, type=int, help='Number of training iterations')
 parser.add_argument('--start_iter', default=0, type=int, help='Begin counting iterations starting from this value (should be used with resume)')
 parser.add_argument('--cuda', default=True, type=str2bool, help='Use cuda to train model')
-parser.add_argument('--lr', '--learning-rate', default=1e-3, type=float, help='initial learning rate')
+parser.add_argument('--lr', '--learning-rate', default=0.004, type=float, help='initial learning rate')
 parser.add_argument('--momentum', default=0.9, type=float, help='momentum')
 parser.add_argument('--weight_decay', default=5e-4, type=float, help='Weight decay for SGD')
 parser.add_argument('--gamma', default=0.1, type=float, help='Gamma update for SGD')
@@ -48,7 +54,8 @@ cfg = (v1, v2)[args.version == 'v2']
 if not os.path.exists(args.save_folder):
     os.mkdir(args.save_folder)
 
-train_sets = [('2007', 'trainval'), ('2012', 'trainval')]
+# train_sets = [('2007', 'trainval'), ('2012', 'trainval')]
+train_sets = [('0712', 'trainval')]
 # train_sets = 'train'
 ssd_dim = 300  # only support 300 now
 means = (104, 117, 123)  # only support voc now
@@ -56,6 +63,7 @@ num_classes = len(VOC_CLASSES) + 1
 batch_size = args.batch_size
 accum_batch_size = 32
 iter_size = accum_batch_size / batch_size
+
 max_iter = 120000
 weight_decay = 0.0005
 stepvalues = (80000, 100000, 120000)
@@ -65,6 +73,15 @@ momentum = 0.9
 if args.visdom:
     import visdom
     viz = visdom.Visdom()
+
+if args.dense_size == '128':
+    from models.dense128 import build_ssd
+elif args.dense_size == '64':
+    from models.dense64 import build_ssd
+elif args.dense_size == '32':
+    from models.dense32 import build_ssd
+else:
+    print('Unkown dense size!')
 
 ssd_net = build_ssd('train', 300, num_classes)
 net = ssd_net
@@ -76,6 +93,9 @@ if args.cuda:
 if args.resume:
     print('Resuming training, loading {}...'.format(args.resume))
     ssd_net.load_weights(args.resume)
+elif args.finetune:
+    print("finetuning from ssd300")
+    ssd_net.finetune(args.finetune)
 else:
     vgg_weights = torch.load(args.save_folder + args.basenet)
     print('Loading base network...')
@@ -83,7 +103,6 @@ else:
 
 if args.cuda:
     net = net.cuda()
-
 
 def xavier(param):
     init.xavier_uniform(param)
@@ -94,18 +113,34 @@ def weights_init(m):
         xavier(m.weight.data)
         m.bias.data.zero_()
 
-
 if not args.resume:
     print('Initializing weights...')
-    # initialize newly added layers' weights with xavier method
-    ssd_net.extras.apply(weights_init)
-    ssd_net.loc.apply(weights_init)
-    ssd_net.conf.apply(weights_init)
+    if args.finetune:
+        ssd_net.dense_list0.apply(weights_init)
+        ssd_net.dense_list1.apply(weights_init)
+        ssd_net.dense_list2.apply(weights_init)
+        ssd_net.dense_list3.apply(weights_init)
+        ssd_net.dense_list4.apply(weights_init)
+        ssd_net.dense_list5.apply(weights_init)
+        # for i in range(4):
+        #     ssd_net.loc[i].apply(weights_init)
+        #     ssd_net.conf[i].apply(weights_init)
+    else:
+        ssd_net.dense_list0.apply(weights_init)
+        ssd_net.dense_list1.apply(weights_init)
+        ssd_net.dense_list2.apply(weights_init)
+        ssd_net.dense_list3.apply(weights_init)
+        ssd_net.dense_list4.apply(weights_init)
+        ssd_net.dense_list5.apply(weights_init)
+        ssd_net.extras.apply(weights_init)
+        ssd_net.loc.apply(weights_init)
+        ssd_net.conf.apply(weights_init)
 
 optimizer = optim.SGD(net.parameters(), lr=args.lr,
                       momentum=args.momentum, weight_decay=args.weight_decay)
 criterion = MultiBoxLoss(num_classes, 0.5, True, 0, True, 3, 0.5, False, args.cuda)
 
+print(net.module)
 
 def train():
     net.train()
@@ -146,6 +181,8 @@ def train():
     batch_iterator = None
     data_loader = data.DataLoader(dataset, batch_size, num_workers=args.num_workers,
                                   shuffle=True, collate_fn=detection_collate, pin_memory=True)
+    ave_conf_loss = 0
+    ave_loc_loss = 0
     for iteration in range(args.start_iter, max_iter):
         if (not batch_iterator) or (iteration % epoch_size == 0):
             # create batch iterator
@@ -178,6 +215,7 @@ def train():
         # forward
         t0 = time.time()
         out = net(images)
+
         # backprop
         optimizer.zero_grad()
         loss_l, loss_c = criterion(out, targets)
@@ -187,9 +225,14 @@ def train():
         t1 = time.time()
         loc_loss += loss_l.data[0]
         conf_loss += loss_c.data[0]
+
         if iteration % 10 == 0:
+            lr = optimizer.param_groups[0]['lr']
+
             print('Timer: %.4f sec.' % (t1 - t0))
-            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.data[0]), end=' ')
+            # print('conf loss: ' +  str(loss_c.data[0]) + '\t loc loss' + str(loss_l.data[0]))
+            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.data[0]) + ' || conf loss %.4f ||' % (loss_c.data[0]) + ' loc loss %.4f ||' % (loss_l.data[0]) + ' || lr: %.6f ' % (lr), end=' ')
+
             if args.visdom and args.send_images_to_visdom:
                 random_batch_index = np.random.randint(images.size(0))
                 viz.image(images.data[random_batch_index].cpu().numpy())
@@ -212,9 +255,9 @@ def train():
                 )
         if iteration % 5000 == 0:
             print('Saving state, iter:', iteration)
-            torch.save(ssd_net.state_dict(), 'weights/ssd300_0712_' +
+            torch.save(ssd_net.state_dict(), 'weights/ssd300_dense_1223_' +
                        repr(iteration) + '.pth')
-    torch.save(ssd_net.state_dict(), args.save_folder + '' + args.version + '.pth')
+    torch.save(ssd_net.state_dict(), args.save_folder + '' + args.version +"_dense_1223" + '.pth')
 
 
 def adjust_learning_rate(optimizer, gamma, step):
