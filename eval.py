@@ -13,9 +13,7 @@ from torch.autograd import Variable
 from data import VOCroot
 from data import VOC_CLASSES as labelmap
 import torch.utils.data as data
-
 from data import AnnotationTransform, VOCDetection, BaseTransform, VOC_CLASSES
-from ssd import build_ssd
 
 import sys
 import os
@@ -36,6 +34,7 @@ def str2bool(v):
 parser = argparse.ArgumentParser(description='Single Shot MultiBox Detection')
 parser.add_argument('--trained_model', default='weights/ssd300_mAP_77.43_v2.pth',
                     type=str, help='Trained state_dict file path to open')
+parser.add_argument('--dense_size', default='64', help='dense_ssd size 128, 64 or 32')
 parser.add_argument('--save_folder', default='eval/', type=str,
                     help='File path to save results')
 parser.add_argument('--confidence_threshold', default=0.01, type=float,
@@ -55,6 +54,15 @@ if args.cuda and torch.cuda.is_available():
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 else:
     torch.set_default_tensor_type('torch.FloatTensor')
+
+if args.dense_size == '128':
+    from models.dense128 import build_ssd
+elif args.dense_size == '64':
+    from models.dense64 import build_ssd
+elif args.dense_size == '32':
+    from models.dense32 import build_ssd
+else:
+    print('Unkown dense size!')
 
 annopath = os.path.join(args.voc_root, 'VOC2007', 'Annotations', '%s.xml')
 imgpath = os.path.join(args.voc_root, 'VOC2007', 'JPEGImages', '%s.jpg')
