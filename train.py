@@ -10,7 +10,6 @@ import torch.utils.data as data
 from data import v2, v1, AnnotationTransform, VOCDetection, detection_collate, VOCroot, VOC_CLASSES
 from utils.augmentations import SSDAugmentation
 from layers.modules import MultiBoxLoss
-from ssd_dense_32 import build_ssd
 import numpy as np
 import time
 import os 
